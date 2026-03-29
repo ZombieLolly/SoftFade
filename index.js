@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 
-// ────────── 1️⃣ Création du client (FIX intents) ──────────
+// ────────── 1️⃣ Création du client ──────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -26,14 +26,12 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName !== 'fade') return;
 
-  // Admin only
   if (!interaction.member.permissions.has('Administrator')) {
     return interaction.reply({ content: "🚫 Vous n'êtes pas autorisé.", ephemeral: true });
   }
 
   const option = interaction.options.getString('option');
 
-  // Récupération serveur et salons
   const guild = await client.guilds.fetch(GUILD_ID);
   const textChannel = await guild.channels.fetch(TEXT_CHANNEL_ID);
   const voiceChannel = await guild.channels.fetch(VOICE_CHANNEL_ID);
@@ -42,7 +40,6 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply({ content: "🚫 Salon introuvable.", ephemeral: true });
   }
 
-  // Cancel
   if (option === 'cancel') {
     if (fadeTimeout) clearTimeout(fadeTimeout);
     fadeTimeout = null;
@@ -55,17 +52,14 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply({ content: '🚫 Nombre de minutes invalide.', ephemeral: true });
   }
 
-  // Message start
   await textChannel.send(`⟡ signal fading... ${duration} minute${duration>1?'s':''}, then we drift ⟡`);
 
-  // Message 1 minute avant
   if (duration > 1) {
     setTimeout(() => {
       textChannel.send(`⟡ we're reaching the quiet part of the night. 1 minute, then we'll ease into it ⟡`);
     }, (duration - 1) * 60 * 1000);
   }
 
-  // Déconnexion
   fadeTimeout = setTimeout(() => {
     voiceChannel.members.forEach(member => member.voice.disconnect());
     textChannel.send('⟡ and just like that... the night takes over ⟡');
@@ -78,5 +72,4 @@ client.on('interactionCreate', async (interaction) => {
   });
 });
 
-// ────────── 5️⃣ Login ──────────
 client.login(TOKEN);
