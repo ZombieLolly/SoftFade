@@ -1,99 +1,111 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
 
-// ────────── 1️⃣ Créer le client ──────────
-const client = new Client({
+const TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = "1487880894151921694"; // Mets ton vrai ID ici
+const GUILD_ID = "1487642446203457747";
+const TEXT_CHANNEL_ID = "1487848372609089706";
+const VOICE_CHANNEL_ID = "1487806130938839230";
+
+const client = new Client({ 
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessages
-  ]
+  ] 
 });
 
-// ────────── 2️⃣ Variables d'environnement ──────────
-const TOKEN = process.env.DISCORD_TOKEN;
-const GUILD_ID = process.env.GUILD_ID;
-const TEXT_CHANNEL_ID = process.env.TEXT_CHANNEL_ID;
-const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID;
+let fadeTimer = null;
+let preMessageTimer = null;
 
-let fadeTimeout = null;
-
-// ────────── 3️⃣ Enregistrer la commande slash /fade ──────────
+// ────────── Commande /fade ──────────
 const commands = [
   new SlashCommandBuilder()
     .setName('fade')
-    .setDescription('Programmez le fade dans le voice channel')
+    .setDescription('Déconnecte tout le monde du VC après X minutes (Admin only)')
     .addStringOption(option =>
-      option.setName('option')
-        .setDescription('Nombre de minutes ou "cancel" pour annuler')
-        .setRequired(true))
-].map(command => command.toJSON());
+      option.setName('time')
+            .setDescription('Nombre de minutes ou "cancel"')
+            .setRequired(true))
+].map(cmd => cmd.toJSON());
 
+// Enregistrement des commandes
 const rest = new REST({ version: '10' }).setToken(TOKEN);
-
 (async () => {
   try {
-    console.log('🔹 Registering commands...');
+    console.log('Enregistrement des commandes...');
     await rest.put(
-      Routes.applicationGuildCommands(client.user?.id || 'CLIENT_ID_PLACEHOLDER', GUILD_ID),
+      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
     );
-    console.log('✅ Commands registered');
-  } catch (error) {
-    console.error(error);
+    console.log('Commandes enregistrées ✅');
+  } catch (err) {
+    console.error(err);
   }
 })();
 
-// ────────── 4️⃣ Bot prêt ──────────
+// ────────── Ready ──────────
 client.once('ready', () => {
   console.log(`SoftFade connecté en tant que ${client.user.tag}`);
 });
 
-// ────────── 5️⃣ Commande /fade ──────────
-client.on('interactionCreate', async (interaction) => {
+// ────────── Interaction ──────────
+client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName !== 'fade') return;
 
-  // Admin only
-  if (!interaction.member.permissions.has('Administrator')) {
-    return interaction.reply({ content: "🚫 Vous n'êtes pas autorisé.", ephemeral: true });
+  // Vérifier admin
+  if (!interaction.member.permissions.has("Administrator")) {
+    return interaction.reply({ content: '❌ Seuls les admins peuvent utiliser cette commande', ephemeral: true });
   }
 
-  const option = interaction.options.getString('option');
+  const timeArg = interaction.options.getString('time').toLowerCase();
+
+  // ────────── Annuler le timer ──────────
+  if (timeArg === 'cancel') {
+    if (!fadeTimer) return interaction.reply({ content: '❌ Aucun timer en cours', ephemeral: true });
+    clearTimeout(fadeTimer);
+    clearTimeout(preMessageTimer);
+    fadeTimer = null;
+    preMessageTimer = null;
+    return interaction.reply('✅ Timer annulé');
+  }
+
+  const minutes = parseInt(timeArg);
+  if (isNaN(minutes) || minutes <= 0) {
+    return interaction.reply({ content: '❌ Indique un nombre de minutes valide ou "cancel"', ephemeral: true });
+  }
+
+  // ────────── Fetch channels fiables ──────────
   const guild = await client.guilds.fetch(GUILD_ID);
-  const textChannel = await guild.channels.fetch(TEXT_CHANNEL_ID);
   const voiceChannel = await guild.channels.fetch(VOICE_CHANNEL_ID);
+  const textChannel = await guild.channels.fetch(TEXT_CHANNEL_ID);
 
-  if (!textChannel || !voiceChannel) return interaction.reply({ content: "🚫 Salon introuvable.", ephemeral: true });
-
-  // Cancel
-  if (option.toLowerCase() === 'cancel') {
-    if (fadeTimeout) clearTimeout(fadeTimeout);
-    fadeTimeout = null;
-    return textChannel.send('⟡ Fade cancelled. ⟡');
+  if (!voiceChannel || !textChannel) {
+    return interaction.reply({ content: '❌ Channels introuvables', ephemeral: true });
   }
 
-  const duration = parseInt(option);
+  if (fadeTimer) return interaction.reply({ content: '❌ Un timer est déjà en cours', ephemeral: true });
 
-  if (isNaN(duration) || duration <= 0) {
-    return interaction.reply({ content: '🚫 Veuillez entrer un nombre de minutes valide.', ephemeral: true });
+  // ────────── Réponse immédiate ──────────
+  await interaction.reply({ content: `⟡ signal fading... ${minutes} minute${minutes > 1 ? 's' : ''}, then we drift ⟡`, ephemeral: false });
+
+  // ────────── Message 1 min avant ──────────
+  if (minutes > 1) {
+    preMessageTimer = setTimeout(() => {
+      textChannel.send('⟡ we\'re reaching the quiet part of the night. 1 minute, then we\'ll ease into it ⟡').catch(console.error);
+    }, (minutes - 1) * 60000);
   }
 
-  await textChannel.send(`⟡ Signal fading... ${duration} minute${duration > 1 ? 's' : ''}, then we drift ⟡`);
-
-  if (duration > 1) {
-    setTimeout(() => {
-      textChannel.send(`⟡ We're reaching the quiet part of the night. 1 minute, then we'll ease into it ⟡`);
-    }, (duration - 1) * 60 * 1000);
-  }
-
-  fadeTimeout = setTimeout(() => {
-    voiceChannel.members.forEach(member => member.voice.disconnect());
-    textChannel.send('⟡ And just like that... the night takes over ⟡');
-    fadeTimeout = null;
-  }, duration * 60 * 1000);
-
-  await interaction.reply({ content: `⟡ Fade programmé pour ${duration} minute${duration > 1 ? 's' : ''} ⟡`, ephemeral: true });
+  // ────────── Timer final pour déconnecter ──────────
+  fadeTimer = setTimeout(() => {
+    voiceChannel.members.forEach(member => {
+      if (member.voice.channel) member.voice.setChannel(null).catch(console.error);
+    });
+    textChannel.send('⟡ and just like that... the night takes over ⟡').catch(console.error);
+    fadeTimer = null;
+    preMessageTimer = null;
+  }, minutes * 60000);
 });
 
-// ────────── 6️⃣ Login ──────────
+// ────────── Login ──────────
 client.login(TOKEN);
